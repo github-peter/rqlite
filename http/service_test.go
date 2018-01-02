@@ -78,7 +78,7 @@ func Test_HasVersionHeader(t *testing.T) {
 	}
 }
 
-func Test_HasContentType(t *testing.T) {
+func Test_HasContentTypeJSON(t *testing.T) {
 	m := &MockStore{}
 	s := New("127.0.0.1:0", m, nil)
 	if err := s.Start(); err != nil {
@@ -87,13 +87,33 @@ func Test_HasContentType(t *testing.T) {
 	defer s.Close()
 
 	client := &http.Client{}
-	resp, err := client.Get(fmt.Sprintf("http://%s", s.Addr().String()))
+	resp, err := client.Get(fmt.Sprintf("http://%s/status", s.Addr().String()))
 	if err != nil {
 		t.Fatalf("failed to make request")
 	}
 
 	h := resp.Header.Get("Content-Type")
 	if h != "application/json; charset=utf-8" {
+		t.Fatalf("incorrect Content-type in HTTP response: %s", h)
+	}
+}
+
+func Test_HasContentTypeOctetStream(t *testing.T) {
+	m := &MockStore{}
+	s := New("127.0.0.1:0", m, nil)
+	if err := s.Start(); err != nil {
+		t.Fatalf("failed to start service")
+	}
+	defer s.Close()
+
+	client := &http.Client{}
+	resp, err := client.Get(fmt.Sprintf("http://%s/db/backup", s.Addr().String()))
+	if err != nil {
+		t.Fatalf("failed to make request")
+	}
+
+	h := resp.Header.Get("Content-Type")
+	if h != "application/octet-stream" {
 		t.Fatalf("incorrect Content-type in HTTP response: %s", h)
 	}
 }
@@ -143,6 +163,34 @@ func Test_404Routes(t *testing.T) {
 	}
 	if resp.StatusCode != 404 {
 		t.Fatalf("failed to get expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func Test_404Routes_ExpvarPprofDisabled(t *testing.T) {
+	m := &MockStore{}
+	s := New("127.0.0.1:0", m, nil)
+	if err := s.Start(); err != nil {
+		t.Fatalf("failed to start service")
+	}
+	defer s.Close()
+	host := fmt.Sprintf("http://%s", s.Addr().String())
+
+	client := &http.Client{}
+
+	for _, path := range []string{
+		"/debug/vars",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/profile",
+		"/debug/pprof/symbol",
+	} {
+		req, err := http.NewRequest("GET", host+path, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("failed to make request: %s", err.Error())
+		}
+		if resp.StatusCode != 404 {
+			t.Fatalf("failed to get expected 404 for path %s, got %d", path, resp.StatusCode)
+		}
 	}
 }
 
@@ -231,6 +279,8 @@ func Test_401Routes_NoBasicAuth(t *testing.T) {
 
 	m := &MockStore{}
 	s := New("127.0.0.1:0", m, c)
+	s.Expvar = true
+	s.Pprof = true
 	if err := s.Start(); err != nil {
 		t.Fatalf("failed to start service")
 	}
@@ -247,6 +297,10 @@ func Test_401Routes_NoBasicAuth(t *testing.T) {
 		"/join",
 		"/delete",
 		"/status",
+		"/debug/vars",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/profile",
+		"/debug/pprof/symbol",
 	} {
 		resp, err := client.Get(host + path)
 		if err != nil {
@@ -263,6 +317,8 @@ func Test_401Routes_BasicAuthBadPassword(t *testing.T) {
 
 	m := &MockStore{}
 	s := New("127.0.0.1:0", m, c)
+	s.Expvar = true
+	s.Pprof = true
 	if err := s.Start(); err != nil {
 		t.Fatalf("failed to start service")
 	}
@@ -278,6 +334,10 @@ func Test_401Routes_BasicAuthBadPassword(t *testing.T) {
 		"/db/load",
 		"/join",
 		"/status",
+		"/debug/vars",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/profile",
+		"/debug/pprof/symbol",
 	} {
 		req, err := http.NewRequest("GET", host+path, nil)
 		if err != nil {
@@ -300,6 +360,8 @@ func Test_401Routes_BasicAuthBadPerm(t *testing.T) {
 
 	m := &MockStore{}
 	s := New("127.0.0.1:0", m, c)
+	s.Expvar = true
+	s.Pprof = true
 	if err := s.Start(); err != nil {
 		t.Fatalf("failed to start service")
 	}
@@ -315,6 +377,10 @@ func Test_401Routes_BasicAuthBadPerm(t *testing.T) {
 		"/db/load",
 		"/join",
 		"/status",
+		"/debug/vars",
+		"/debug/pprof/cmdline",
+		"/debug/pprof/profile",
+		"/debug/pprof/symbol",
 	} {
 		req, err := http.NewRequest("GET", host+path, nil)
 		if err != nil {
@@ -332,19 +398,59 @@ func Test_401Routes_BasicAuthBadPerm(t *testing.T) {
 	}
 }
 
+func Test_RegisterStatus(t *testing.T) {
+	var stats *mockStatuser
+	m := &MockStore{}
+	s := New("127.0.0.1:0", m, nil)
+
+	if err := s.RegisterStatus("foo", stats); err != nil {
+		t.Fatalf("failed to register statuser: %s", err.Error())
+	}
+
+	if err := s.RegisterStatus("foo", stats); err == nil {
+		t.Fatal("successfully re-registered statuser")
+	}
+}
+
+func Test_FormRedirect(t *testing.T) {
+	m := &MockStore{}
+	s := New("127.0.0.1:0", m, nil)
+	req := mustNewHTTPRequest("http://foo:4001")
+
+	if rd := s.FormRedirect(req, "foo:4001"); rd != "http://foo:4001" {
+		t.Fatal("failed to form redirect for simple URL")
+	}
+	if rd := s.FormRedirect(req, "bar:4002"); rd != "http://bar:4002" {
+		t.Fatal("failed to form redirect for simple URL with new host")
+	}
+}
+
+func Test_FormRedirectParam(t *testing.T) {
+	m := &MockStore{}
+	s := New("127.0.0.1:0", m, nil)
+	req := mustNewHTTPRequest("http://foo:4001/db/query?x=y")
+
+	if rd := s.FormRedirect(req, "foo:4001"); rd != "http://foo:4001/db/query?x=y" {
+		t.Fatal("failed to form redirect for URL")
+	}
+	if rd := s.FormRedirect(req, "bar:4003"); rd != "http://bar:4003/db/query?x=y" {
+		t.Fatal("failed to form redirect for URL with new host")
+	}
+}
+
 type MockStore struct {
 	executeFn func(queries []string, tx bool) ([]*sql.Result, error)
 	queryFn   func(queries []string, tx, leader, verify bool) ([]*sql.Rows, error)
 }
 
-func (m *MockStore) Execute(queries []string, timings, tx bool) ([]*sql.Result, error) {
+func (m *MockStore) Execute(er *store.ExecuteRequest) ([]*sql.Result, error) {
 	if m.executeFn == nil {
 		return nil, nil
 	}
 	return nil, nil
 }
 
-func (m *MockStore) Query(queries []string, timings, tx bool, lvl store.ConsistencyLevel) ([]*sql.Rows, error) {
+func (m *MockStore) Query(qr *store.QueryRequest) ([]*sql.Rows, error) {
 	if m.queryFn == nil {
 		return nil, nil
 	}
@@ -386,4 +492,19 @@ func (m *mockCredentialStore) Check(username, password string) bool {
 
 func (m *mockCredentialStore) HasPerm(username, perm string) bool {
 	return m.HasPermOK
+}
+
+type mockStatuser struct {
+}
+
+func (m *mockStatuser) Stats() (interface{}, error) {
+	return nil, nil
+}
+
+func mustNewHTTPRequest(url string) *http.Request {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		panic("failed to create HTTP request for testing")
+	}
+	return req
 }

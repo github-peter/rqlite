@@ -1,3 +1,4 @@
+// Command rqlite is the command-line interface for rqlite.
 package main
 
 import (
@@ -20,8 +21,16 @@ type argT struct {
 	Host     string `cli:"H,host" usage:"rqlited host address" dft:"127.0.0.1"`
 	Port     uint16 `cli:"p,port" usage:"rqlited host port" dft:"4001"`
 	Prefix   string `cli:"P,prefix" usage:"rqlited HTTP URL prefix" dft:"/"`
-	Insecure bool   `cli:"insecure" usage:"do not verify rqlited HTTPS certificate" dft:"false"`
+	Insecure bool   `cli:"i,insecure" usage:"do not verify rqlited HTTPS certificate" dft:"false"`
 }
+
+const cliHelp = `.help				Show this message
+.indexes			Show names of all indexes
+.schema				Show CREATE statements for all tables
+.status				Show status and diagnostic information for connected node
+.expvar				Show expvar (Go runtime) information for connected node
+.tables				List names of tables
+`
 
 func main() {
 	cli.SetUsageStyle(cli.ManualStyle)
@@ -32,7 +41,7 @@ func main() {
 			return nil
 		}
 
-		prefix := fmt.Sprintf("%s:%d> ", argv.Host, argv.Port)
+		prefix := fmt.Sprintf("%s:%d>", argv.Host, argv.Port)
 	FOR_READ:
 		for {
 			line, err := prompt.Basic(prefix, false)
@@ -58,6 +67,12 @@ func main() {
 				err = query(ctx, cmd, `SELECT sql FROM sqlite_master WHERE type="index"`, argv)
 			case ".SCHEMA":
 				err = query(ctx, cmd, "SELECT sql FROM sqlite_master", argv)
+			case ".STATUS":
+				err = status(ctx, cmd, line, argv)
+			case ".EXPVAR":
+				err = expvar(ctx, cmd, line, argv)
+			case ".HELP":
+				err = help(ctx, cmd, line, argv)
 			case ".QUIT", "QUIT", "EXIT":
 				break FOR_READ
 			case "SELECT":
@@ -75,11 +90,26 @@ func main() {
 }
 
 func makeJSONBody(line string) string {
-	data, err := json.MarshalIndent([]string{line}, "", "    ")
+	data, err := json.Marshal([]string{line})
 	if err != nil {
 		return ""
 	}
 	return string(data)
+}
+
+func help(ctx *cli.Context, cmd, line string, argv *argT) error {
+	fmt.Printf(cliHelp)
+	return nil
+}
+
+func status(ctx *cli.Context, cmd, line string, argv *argT) error {
+	url := fmt.Sprintf("%s://%s:%d/status", argv.Protocol, argv.Host, argv.Port)
+	return cliJSON(ctx, cmd, line, url, argv)
+}
+
+func expvar(ctx *cli.Context, cmd, line string, argv *argT) error {
+	url := fmt.Sprintf("%s://%s:%d/debug/vars", argv.Protocol, argv.Host, argv.Port)
+	return cliJSON(ctx, cmd, line, url, argv)
 }
 
 func sendRequest(ctx *cli.Context, urlStr string, line string, argv *argT, ret interface{}) error {
@@ -90,6 +120,11 @@ func sendRequest(ctx *cli.Context, urlStr string, line string, argv *argT, ret i
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: argv.Insecure},
 	}}
 
+	// Explicitly handle redirects.
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
 	nRedirect := 0
 	for {
 		resp, err := client.Post(url, "application/json", strings.NewReader(data))
@@ -97,6 +132,10 @@ func sendRequest(ctx *cli.Context, urlStr string, line string, argv *argT, ret i
 			return err
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			return fmt.Errorf("unauthorized")
+		}
 
 		// Check for redirect.
 		if resp.StatusCode == http.StatusMovedPermanently {
@@ -113,9 +152,65 @@ func sendRequest(ctx *cli.Context, urlStr string, line string, argv *argT, ret i
 			return err
 		}
 
-		if err := json.Unmarshal(body, ret); err != nil {
-			return err
-		}
-		return nil
+		return json.Unmarshal(body, ret)
 	}
+}
+
+// cliJSON fetches JSON from a URL, and displays it at the CLI.
+func cliJSON(ctx *cli.Context, cmd, line, url string, argv *argT) error {
+	// Recursive JSON printer.
+	var pprint func(indent int, m map[string]interface{})
+	pprint = func(indent int, m map[string]interface{}) {
+		indentation := "  "
+		for k, v := range m {
+			if v == nil {
+				continue
+			}
+			switch v.(type) {
+			case map[string]interface{}:
+				for i := 0; i < indent; i++ {
+					fmt.Print(indentation)
+				}
+				fmt.Printf("%s:\n", k)
+				pprint(indent+1, v.(map[string]interface{}))
+			default:
+				for i := 0; i < indent; i++ {
+					fmt.Print(indentation)
+				}
+				fmt.Printf("%s: %v\n", k, v)
+			}
+		}
+	}
+
+	client := http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: argv.Insecure},
+	}}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("unauthorized")
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	ret := make(map[string]interface{})
+	if err := json.Unmarshal(body, &ret); err != nil {
+		return err
+	}
+
+	// Specific key requested?
+	parts := strings.Split(line, " ")
+	if len(parts) >= 2 {
+		ret = map[string]interface{}{parts[1]: ret[parts[1]]}
+	}
+	pprint(0, ret)
+
+	return nil
 }

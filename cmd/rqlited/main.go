@@ -1,14 +1,4 @@
-/*
-rqlite -- replicating SQLite via the Raft consensus protocol..
-
-rqlite is a distributed system that provides a replicated relational database,
-using SQLite as the storage engine.
-
-rqlite is written in Go and uses Raft to achieve consensus across all the
-instances of the SQLite databases. rqlite ensures that every change made to
-the database is made to a majority of underlying SQLite files, or none-at-all.
-*/
-
+// Command rqlited is the rqlite server.
 package main
 
 import (
@@ -35,19 +25,19 @@ import (
 const sqliteDSN = "db.sqlite"
 
 const logo = `
-            _ _ _           _
-           | (_) |         | |
-  _ __ __ _| |_| |_ ___  __| |
- | '__/ _  | | | __/ _ \/ _  |  The lightweight, distributed
- | | | (_| | | | ||  __/ (_| |  relational database.
- |_|  \__, |_|_|\__\___|\__,_|
+            _ _ _
+           | (_) |
+  _ __ __ _| |_| |_ ___
+ | '__/ _  | | | __/ _ \   The lightweight, distributed
+ | | | (_| | | | ||  __/   relational database.
+ |_|  \__, |_|_|\__\___|
          | |
          |_|
 `
 
 // These variables are populated via the Go linker.
 var (
-	version   = "3"
+	version   = "4"
 	commit    = "unknown"
 	branch    = "unknown"
 	buildtime = "unknown"
@@ -68,10 +58,14 @@ var httpAdv string
 var authFile string
 var x509Cert string
 var x509Key string
+var nodeEncrypt bool
+var nodeX509Cert string
+var nodeX509Key string
 var raftAddr string
 var raftAdv string
 var joinAddr string
 var noVerify bool
+var noNodeVerify bool
 var discoURL string
 var discoID string
 var expvar bool
@@ -91,28 +85,32 @@ const desc = `rqlite is a lightweight, distributed relational database, which us
 storage engine. It provides an easy-to-use, fault-tolerant store for relational data.`
 
 func init() {
-	flag.StringVar(&httpAddr, "http", "localhost:4001", "HTTP server bind address. For HTTPS, set X.509 cert and key")
-	flag.StringVar(&httpAdv, "httpadv", "", "Advertised HTTP address. If not set, same as HTTP server")
-	flag.StringVar(&x509Cert, "x509cert", "", "Path to X.509 certificate")
-	flag.StringVar(&x509Key, "x509key", "", "Path to X.509 private key for certificate")
+	flag.StringVar(&httpAddr, "http-addr", "localhost:4001", "HTTP server bind address. For HTTPS, set X.509 cert and key")
+	flag.StringVar(&httpAdv, "http-adv-addr", "", "Advertised HTTP address. If not set, same as HTTP server")
+	flag.StringVar(&x509Cert, "http-cert", "", "Path to X.509 certificate for HTTP endpoint")
+	flag.StringVar(&x509Key, "http-key", "", "Path to X.509 private key for HTTP endpoint")
+	flag.BoolVar(&noVerify, "http-no-verify", false, "Skip verification of remote HTTPS cert when joining cluster")
+	flag.BoolVar(&nodeEncrypt, "node-encrypt", false, "Enable node-to-node encryption")
+	flag.StringVar(&nodeX509Cert, "node-cert", "cert.pem", "Path to X.509 certificate for node-to-node encryption")
+	flag.StringVar(&nodeX509Key, "node-key", "key.pem", "Path to X.509 private key for node-to-node encryption")
+	flag.BoolVar(&noNodeVerify, "node-no-verify", false, "Skip verification of a remote node cert")
 	flag.StringVar(&authFile, "auth", "", "Path to authentication and authorization file. If not set, not enabled")
-	flag.StringVar(&raftAddr, "raft", "localhost:4002", "Raft communication bind address")
-	flag.StringVar(&raftAdv, "raftadv", "", "Advertised Raft communication address. If not set, same as Raft bind")
+	flag.StringVar(&raftAddr, "raft-addr", "localhost:4002", "Raft communication bind address")
+	flag.StringVar(&raftAdv, "raft-adv-addr", "", "Advertised Raft communication address. If not set, same as Raft bind")
 	flag.StringVar(&joinAddr, "join", "", "Comma-delimited list of nodes, through which a cluster can be joined (proto://host:port)")
-	flag.BoolVar(&noVerify, "noverify", false, "Skip verification of remote HTTPS cert when joining cluster")
-	flag.StringVar(&discoURL, "disco", "http://discovery.rqlite.com", "Set Discovery Service URL")
-	flag.StringVar(&discoID, "discoid", "", "Set Discovery ID. If not set, Discovery Service not used")
+	flag.StringVar(&discoURL, "disco-url", "http://discovery.rqlite.com", "Set Discovery Service URL")
+	flag.StringVar(&discoID, "disco-id", "", "Set Discovery ID. If not set, Discovery Service not used")
 	flag.BoolVar(&expvar, "expvar", true, "Serve expvar data on HTTP server")
 	flag.BoolVar(&pprofEnabled, "pprof", true, "Serve pprof data on HTTP server")
 	flag.StringVar(&dsn, "dsn", "", `SQLite DSN parameters. E.g. "cache=shared&mode=memory"`)
-	flag.BoolVar(&onDisk, "ondisk", false, "Use an on-disk SQLite database")
+	flag.BoolVar(&onDisk, "on-disk", false, "Use an on-disk SQLite database")
 	flag.BoolVar(&showVersion, "version", false, "Show version information and exit")
-	flag.StringVar(&raftHeartbeatTimeout, "rafttimeout", "1s", "Raft heartbeat timeout")
-	flag.StringVar(&raftApplyTimeout, "raftapplytimeout", "10s", "Raft apply timeout")
-	flag.StringVar(&raftOpenTimeout, "raftopentimeout", "120s", "Time for initial Raft logs to be applied. Use 0s duration to skip wait")
-	flag.Uint64Var(&raftSnapThreshold, "raftsnap", 8192, "Number of outstanding log entries that trigger snapshot")
-	flag.StringVar(&cpuProfile, "cpuprofile", "", "Path to file for CPU profiling information")
-	flag.StringVar(&memProfile, "memprofile", "", "Path to file for memory profiling information")
+	flag.StringVar(&raftHeartbeatTimeout, "raft-timeout", "1s", "Raft heartbeat timeout")
+	flag.StringVar(&raftApplyTimeout, "raft-apply-timeout", "10s", "Raft apply timeout")
+	flag.StringVar(&raftOpenTimeout, "raft-open-timeout", "120s", "Time for initial Raft logs to be applied. Use 0s duration to skip wait")
+	flag.Uint64Var(&raftSnapThreshold, "raft-snap", 8192, "Number of outstanding log entries that trigger snapshot")
+	flag.StringVar(&cpuProfile, "cpu-profile", "", "Path to file for CPU profiling information")
+	flag.StringVar(&memProfile, "mem-profile", "", "Path to file for memory profiling information")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "\n%s\n\n", desc)
 		fmt.Fprintf(os.Stderr, "Usage: %s [arguments] <data directory>\n", name)
@@ -124,8 +122,8 @@ func main() {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Printf("%s %s %s %s (commit %s, branch %s)\n",
-			name, version, runtime.GOOS, runtime.GOARCH, commit, branch)
+		fmt.Printf("%s %s %s %s %s (commit %s, branch %s)\n",
+			name, version, runtime.GOOS, runtime.GOARCH, runtime.Version(), commit, branch)
 		os.Exit(0)
 	}
 
@@ -145,12 +143,12 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.SetPrefix(fmt.Sprintf("[%s] ", name))
 	log.Printf("%s starting, version %s, commit %s, branch %s", name, version, commit, branch)
-	log.Printf("target architecture is %s, operating system target is %s", runtime.GOARCH, runtime.GOOS)
+	log.Printf("%s, target architecture is %s, operating system target is %s", runtime.Version(), runtime.GOARCH, runtime.GOOS)
 
 	// Start requested profiling.
 	startProfile(cpuProfile, memProfile)
 
-	// Set up TCP communication between nodes.
+	// Set up node-to-node TCP communication.
 	ln, err := net.Listen("tcp", raftAddr)
 	if err != nil {
 		log.Fatalf("failed to listen on %s: %s", raftAddr, err.Error())
@@ -162,10 +160,22 @@ func main() {
 			log.Fatalf("failed to resolve advertise address %s: %s", raftAdv, err.Error())
 		}
 	}
-	mux := tcp.NewMux(ln, adv)
+
+	// Start up node-to-node network mux.
+	var mux *tcp.Mux
+	if nodeEncrypt {
+		log.Printf("enabling node-to-node encryption with cert: %s, key: %s", nodeX509Cert, nodeX509Key)
+		mux, err = tcp.NewTLSMux(ln, adv, nodeX509Cert, nodeX509Key)
+	} else {
+		mux, err = tcp.NewMux(ln, adv)
+	}
+	if err != nil {
+		log.Fatalf("failed to create node-to-node mux: %s", err.Error())
+	}
+	mux.InsecureSkipVerify = noNodeVerify
 	go mux.Serve()
 
-	// Start up mux and get transports for cluster.
+	// Get transport for Raft communications.
 	raftTn := mux.Listen(muxRaftHeader)
 
 	// Create and open the store.
@@ -254,18 +264,16 @@ func main() {
 	}
 	log.Printf("set peer for %s to %s", raftTn.Addr().String(), apiAdv)
 
-	// Create HTTP server and load authentication information, if supplied.
+	// Get the credential store.
+	credStr, err := credentialStore()
+	if err != nil {
+		log.Fatalf("failed to get credential store: %s", err.Error())
+	}
+
+	// Create HTTP server and load authentication information if required.
 	var s *httpd.Service
-	if authFile != "" {
-		f, err := os.Open(authFile)
-		if err != nil {
-			log.Fatalf("failed to open authentication file %s: %s", authFile, err.Error())
-		}
-		credentialStore := auth.NewCredentialsStore()
-		if err := credentialStore.Load(f); err != nil {
-			log.Fatalf("failed to load authentication file: %s", err.Error())
-		}
-		s = httpd.New(httpAddr, str, credentialStore)
+	if credStr != nil {
+		s = httpd.New(httpAddr, str, credStr)
 	} else {
 		s = httpd.New(httpAddr, str, nil)
 	}
@@ -284,6 +292,12 @@ func main() {
 		log.Fatalf("failed to start HTTP server: %s", err.Error())
 	}
 
+	// Register cross-component statuses.
+	if err := s.RegisterStatus("mux", mux); err != nil {
+		log.Fatalf("failed to register mux status: %s", err.Error())
+	}
+
+	// Block until signalled.
 	terminate := make(chan os.Signal, 1)
 	signal.Notify(terminate, os.Interrupt)
 	<-terminate
@@ -344,6 +358,23 @@ func publishAPIAddr(c *cluster.Service, raftAddr, apiAddr string, t time.Duratio
 			return fmt.Errorf("set peer timeout expired")
 		}
 	}
+}
+
+func credentialStore() (*auth.CredentialsStore, error) {
+	if authFile == "" {
+		return nil, nil
+	}
+
+	f, err := os.Open(authFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open authentication file %s: %s", authFile, err.Error())
+	}
+
+	cs := auth.NewCredentialsStore()
+	if cs.Load(f); err != nil {
+		return nil, err
+	}
+	return cs, nil
 }
 
 // prof stores the file locations of active profiles.

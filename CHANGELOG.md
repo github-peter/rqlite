@@ -1,5 +1,46 @@
-## 3.13.0 (unreleased)
+## 4.2.2 (December 7th 2017)
+- [PR #383](https://github.com/rqlite/rqlite/pull/383): Fix unit tests after underlying SQLite master table changes.
+- [PR #384](https://github.com/rqlite/rqlite/pull/384): "status" perm required to access Go runtime information.
+
+## 4.2.1 (November 10th 2017)
+- [PR #367](https://github.com/rqlite/rqlite/pull/367): Remove superflous leading space at CLI prompt.
+- [PR #368](https://github.com/rqlite/rqlite/pull/368): CLI displays clear error message when not authorized.
+- [PR #370](https://github.com/rqlite/rqlite/pull/370): CLI does not need to indent JSON when making requests.
+- [PR #373](https://github.com/rqlite/rqlite/pull/373), [PR #374](https://github.com/rqlite/rqlite/pull/374): Add simple INSERT-only benchmarking tool.
+
+## 4.2.0 (October 19th 2017)
+- [PR #354](https://github.com/rqlite/rqlite/pull/354): Vendor Raft.
+- [PR #354](https://github.com/rqlite/rqlite/pull/354): Move to Go 1.9.1.
+
+## 4.1.0 (September 3rd 2017)
+- [PR #342](https://github.com/rqlite/rqlite/pull/342): Add missing Store parameters to diagnostic output.
+- [PR #343](https://github.com/rqlite/rqlite/pull/343): Support fetching [expvar](https://golang.org/pkg/expvar/) information via CLI.
+- [PR #344](https://github.com/rqlite/rqlite/pull/344): Make read-consistency query param value case-insensitive.
+- [PR #345](https://github.com/rqlite/rqlite/pull/345): Add unit test coverage for status and expvar endpoints.
+
+## 4.0.2 (August 8th 2017)
+- [PR #337](https://github.com/rqlite/rqlite/pull/337): Include any query params with 301 redirect URL.
+
+## 4.0.1 (August 4th 2017)
+- [PR #316](https://github.com/rqlite/rqlite/pull/316): CLI doesn't need pretty nor timed responses from node.
+- [PR #334](https://github.com/rqlite/rqlite/pull/334): Set Content-Type to "application/octet-stream" for backup endpoint. Fixes [issue #333](https://github.com/rqlite/rqlite/issues/333).
+
+## 4.0.0 (June 18th 2017)
+**The 4.0 release has renamed command-line options relative to earlier releases.** This means that previous commands used to launch rqlited will not work. However the command-line changes are cosmetic, and each previous option maps 1-to-1 to a renamed option. Otherwise deployments of earlier releases can be upgraded to the 4.0 series without any other work.
+
+- [PR #309](https://github.com/rqlite/rqlite/pull/309): Tweak start-up logo.
+- [PR #308](https://github.com/rqlite/rqlite/pull/308): Move to clearer command-line options.
+- [PR #307](https://github.com/rqlite/rqlite/pull/307): Support node-to-node encryption. Fixes [issue #93](https://github.com/rqlite/rqlite/issues/93).
+- [PR #310](https://github.com/rqlite/rqlite/pull/310): HTTP service supports registration of Status providers; Mux is first client.
+- [PR #315](https://github.com/rqlite/rqlite/pull/315): Add status and help commands to CLI.
+
+## 3.14.0 (May 4th 2017)
+- [PR #304](https://github.com/rqlite/rqlite/pull/304): Switch to Go 1.8.1.
+
+## 3.13.0 (April 3rd 2017)
+- [PR #296](https://github.com/rqlite/rqlite/pull/296): Log Go version at startup.
 - [PR #294](https://github.com/rqlite/rqlite/pull/294): Support multiple explicit join addresses.
+- [PR #297](https://github.com/rqlite/rqlite/pull/297): CLI should explicitly handle redirects due to Go1.8. Fixes [issue #295](https://github.com/rqlite/rqlite/issues/295).
 
 ## 3.12.1 (March 2nd 2017)
 - [PR #291](https://github.com/rqlite/rqlite/pull/291): Don't access Discovery Service if node already part of cluster.
@@ -15,7 +56,7 @@
 - [PR #268](https://github.com/rqlite/rqlite/pull/268): Allow Store to wait for application of initial logs. Fixes [issue #260](https://github.com/rqlite/rqlite/issues/260).
 - [PR #272](https://github.com/rqlite/rqlite/pull/272): Add commit, branch, GOOS, and GOARCH, to output of `--version`.
 - [PR #274](https://github.com/rqlite/rqlite/pull/274): Use Hashicorp function to read peers. Thanks @WanliTian
-- [PR #278](https://github.com/rqlite/rqlite/pull/278): Add support for dot-commands `.tables` and `.schema` to rqlite CLI. Fixes [issue #277](https://github.com/rqlite/  rqlite/issues/277).
+- [PR #278](https://github.com/rqlite/rqlite/pull/278): Add support for dot-commands `.tables` and `.schema` to rqlite CLI. Fixes [issue #277](https://github.com/rqlite/rqlite/issues/277).
 
 ## 3.10.0 (January 29th 2017)
 - [PR #261](https://github.com/rqlite/rqlite/pull/261): Allow Raft Apply timeout to be configurable.
